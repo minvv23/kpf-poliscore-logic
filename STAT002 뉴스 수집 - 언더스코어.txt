@@ -1,0 +1,49 @@
+BEGIN
+
+    // Scrape latest news and convert dates
+    newsdf = SCRAPE_NEWS()
+    FOR EACH row IN newsdf:
+        row['date'] = CONVERT_DATE_FORMAT(row['date'])
+        row['text'] = CONCATENATE(row['title'], row['summary'])
+
+    // Filter for politics news and relevant texts
+    politicsdf = FILTER(newsdf, WHERE category = 'politics')
+    SORT(politicsdf, BY 'date')
+    politicsdf = FILTER(politicsdf, WHERE 'text' CONTAINS ANY_OF people_list)
+
+    // Extract people mentioned in text
+    list_person = EMPTY_LIST()
+    FOR EACH text IN politicsdf['text']:
+        TRY:
+            names = EXTRACT_NAMED_ENTITIES(text, TYPE 'PERSON')
+            list_person.APPEND(SORTED_AND_UNIQUE(names))
+        EXCEPT:
+            list_person.APPEND(NONE)
+
+    // Update dataframe with people data
+    politicsdf['person'] = list_person
+    REMOVE_ROWS_FROM(politicsdf, WHERE 'person' IS EMPTY)
+    FOR EACH name IN people_list:
+        politicsdf[name] = BINARY_ENCODE('person', CONTAINS name)
+
+    // Further filter dataframe based on people list
+    FILTER_OUT_ROWS(politicsdf, WHERE SUM_OF(people_list) IS 0)
+
+    // Group and count data by date and politician
+    countdf = GROUP_AND_SUM(politicsdf, BY 'date', COLUMNS people_list)
+    RESHAPE(countdf, NEW_COLUMNS 'date', 'politician', 'count')
+
+    // Create a list of metrics for each politician
+    list_metric = EMPTY_LIST()
+    FOR EACH person IN people_list:
+        subset = FILTER(politicsdf, WHERE COLUMN person = 1)
+        CALCULATE_AGGREGATES(subset, COLUMNS 'numcomment', 'profanity', BY 'date')
+        subset['politician'] = person
+        FILL_MISSING_VALUES(subset['count'], WITH 0)
+        list_metric.APPEND(subset)
+
+    // Combine individual metrics into final dataframe
+    metricdf = CONCATENATE_ALL(list_metric)
+    KEEP_COLUMNS(metricdf, ['date', 'politician', 'count', 'numcomment', 'profanity'])
+
+END

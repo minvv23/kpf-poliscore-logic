@@ -1,0 +1,55 @@
+BEGIN
+
+    // Read user info from a CSV file
+    infodata = READ_CSV('portal_userinfo.csv')
+    INITIALIZE list_user AS EMPTY LIST
+    INITIALIZE list_error AS EMPTY LIST
+
+    // Loop through each row in infodata
+    FOR EACH row IN infodata:
+        TRY:
+            // Scrape user data based on search URL and comment number
+            each_userdf = SCRAPE_USER_DATA(row['url'], row['commentNo'], MAX_PAGE = 1)
+            // Filter data from the last 10 days
+            FILTER(each_userdf, WHERE 'date' IS WITHIN LAST 10 DAYS)
+            APPEND each_userdf TO list_user
+        EXCEPT:
+            // Record any errors
+            APPEND {'url': row['url'], 'commentNo': row['commentNo']} TO list_error
+
+    // Combine user data into a single dataframe
+    daily_userdata = CONCATENATE(list_user)
+    MERGE(daily_userdata, infodata[['id', 'polislant']])
+
+    // Identify valid news articles related to politics
+    FOR EACH row IN daily_userdata:
+        row['valid_news'] = IS_POLITICS_AND_CONTAINS_PEOPLE(row['category'], row['title'], people_list)
+
+    // Add binary columns for each person in people_list
+    FOR EACH name IN people_list:
+        FOR EACH row IN daily_userdata:
+            row[name] = TITLE_CONTAINS_NAME(row['title'], name)
+
+    // Classify profanity in comments
+    INITIALIZE list_profanity AS EMPTY LIST
+    FOR EACH row IN daily_userdata:
+        IF row['valid_news'] IS TRUE:
+            APPEND PROFANITY_SCORE(row['comment']) TO list_profanity
+        ELSE:
+            APPEND NONE TO list_profanity
+
+    // Extract names of politicians from titles and comments
+    INITIALIZE list_politician AS EMPTY LIST
+    FOR EACH text IN daily_userdata:
+        extracted_names = EXTRACT_NAMES(text, people_list)
+        IF extracted_names IS NOT EMPTY:
+            APPEND SORTED_AND_UNIQUE(extracted_names) TO list_politician
+        ELSE:
+            APPEND NONE TO list_politician
+    daily_userdata['politician'] = list_politician
+
+    // Update daily user data with profanity scores and current date
+    daily_userdata['profanity'] = list_profanity
+    SET daily_userdata['scraped_date'] TO CURRENT_DATE
+
+END
