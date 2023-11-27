@@ -1,0 +1,1 @@
+import{a as s}from"./axios.4a70c6fc.js";import{w as a,s as e,t as n}from"./store.af7c6c73.js";function u(){const t=localStorage.getItem("sbs-soup-identify");if(t){const i=s({method:"post",url:a,headers:{"Content-Type":"application/json"},data:{token:t}});e.update(()=>!0),i.then(o=>{n.update(()=>o.data[0].user_limit),e.update(()=>!1)})}}export{u as c};
